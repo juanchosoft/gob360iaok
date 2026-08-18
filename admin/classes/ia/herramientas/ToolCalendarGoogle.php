@@ -98,32 +98,76 @@ final class ToolCalendarGoogle
         });
     }
 
-    /** Tool: calendario_mover_evento (cambia inicio/fin de un evento existente) */
-    public static function moverEvento(array $input): array
+    /**
+     * Tool: calendario_actualizar_evento — mueve fecha/hora y/o cambia título, ubicación,
+     * descripción o el estado de "todo el día" de un evento existente. Solo toca los campos que
+     * vengan en $input (PATCH parcial real de la API de Calendar: los campos ausentes quedan
+     * intactos en el evento).
+     */
+    public static function actualizarEvento(array $input): array
     {
         return self::conToken(static function (string $token, int $usuarioId) use ($input): array {
             $eventoId = trim((string) ($input['evento_id'] ?? ''));
-            $inicio   = trim((string) ($input['nuevo_inicio'] ?? ''));
-            if ($eventoId === '' || $inicio === '') {
-                return ['error' => 'Se requieren evento_id y nuevo_inicio.'];
+            if ($eventoId === '') {
+                return ['error' => 'Se requiere evento_id.'];
             }
-            $fin = trim((string) ($input['nuevo_fin'] ?? '')) ?: $inicio;
-            $timezone = calendarConfig()['timezone'] ?? 'America/Bogota';
 
-            $cambios = [
-                'start' => ['dateTime' => $inicio, 'timeZone' => $timezone],
-                'end'   => ['dateTime' => $fin, 'timeZone' => $timezone],
-            ];
+            $nuevoInicio = trim((string) ($input['nuevo_inicio'] ?? ''));
+            $nuevoFin    = trim((string) ($input['nuevo_fin'] ?? ''));
+            $titulo      = trim((string) ($input['titulo'] ?? ''));
+            $ubicacion   = trim((string) ($input['ubicacion'] ?? ''));
+            $descripcion = trim((string) ($input['descripcion'] ?? ''));
+            $todoElDia   = $input['todo_el_dia'] ?? null;
+
+            $cambios = [];
+
+            if ($nuevoInicio !== '') {
+                // Todo el día: explícito por el flag, o inferido porque nuevo_inicio viene sin
+                // hora (YYYY-MM-DD). Si se manda un valor solo-fecha dentro de 'dateTime', la API
+                // de Google lo rechaza con 400 Bad Request -- así se rompía mover eventos de todo
+                // el día antes de este fix.
+                $esFechaSola = (bool) preg_match('/^\d{4}-\d{2}-\d{2}$/', $nuevoInicio);
+                $esTodoElDia = $todoElDia === true || ($todoElDia === null && $esFechaSola);
+
+                if ($esTodoElDia) {
+                    $fechaInicio = substr($nuevoInicio, 0, 10);
+                    $fechaFin    = $nuevoFin !== '' ? substr($nuevoFin, 0, 10) : $fechaInicio;
+                    if ($fechaFin <= $fechaInicio) {
+                        // Google usa fecha final EXCLUSIVA para eventos de todo el día.
+                        $fechaFin = (new DateTimeImmutable($fechaInicio))->modify('+1 day')->format('Y-m-d');
+                    }
+                    $cambios['start'] = ['date' => $fechaInicio];
+                    $cambios['end']   = ['date' => $fechaFin];
+                } else {
+                    $timezone = calendarConfig()['timezone'] ?? 'America/Bogota';
+                    $cambios['start'] = ['dateTime' => $nuevoInicio, 'timeZone' => $timezone];
+                    $cambios['end']   = ['dateTime' => $nuevoFin !== '' ? $nuevoFin : $nuevoInicio, 'timeZone' => $timezone];
+                }
+            }
+
+            if ($titulo !== '') {
+                $cambios['summary'] = mb_substr($titulo, 0, 250);
+            }
+            if ($ubicacion !== '') {
+                $cambios['location'] = mb_substr($ubicacion, 0, 1000);
+            }
+            if ($descripcion !== '') {
+                $cambios['description'] = mb_substr($descripcion, 0, 8000);
+            }
+
+            if (empty($cambios)) {
+                return ['error' => 'No se indicó ningún cambio (fecha, título, ubicación o descripción).'];
+            }
 
             $evento = calendarHttp('PATCH', calendarApiUrl($eventoId), $cambios, $token);
             if (!empty($evento['id'])) {
                 GoogleSyncService::actualizarCacheEvento($usuarioId, $evento);
             }
             return [
-                'movido'  => true,
-                'id'      => $evento['id'] ?? $eventoId,
-                'titulo'  => $evento['summary'] ?? null,
-                'mensaje' => 'El evento se movió a la nueva fecha/hora.',
+                'actualizado' => true,
+                'id'          => $evento['id'] ?? $eventoId,
+                'titulo'      => $evento['summary'] ?? null,
+                'mensaje'     => 'El evento se actualizó correctamente.',
             ];
         });
     }

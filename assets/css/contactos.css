@@ -55,12 +55,20 @@
 
 .select2-container--default .select2-selection--single{
   height:38px!important;border:1px solid rgba(255,255,255,.13)!important;border-radius:10px!important;background:var(--co2-field)!important}
-.select2-container--default .select2-selection--single .select2-selection__rendered{color:var(--co2-text);line-height:36px!important}
+/* select2.min.css pone fondo blanco explícito en este span interno (el que realmente pinta el
+   texto elegido) -- sin esto, se ve como un recuadro blanco/gris encima del selector oscuro. */
+.select2-container--default .select2-selection--single .select2-selection__rendered{background:transparent;color:var(--co2-text);line-height:36px!important}
 .select2-container--default .select2-selection--single .select2-selection__arrow{height:36px!important}
 .select2-dropdown{background:var(--co2-panel-strong);border-color:var(--co2-stroke);color:var(--co2-text)}
 .select2-container--default .select2-results__option--highlighted[aria-selected]{background:linear-gradient(135deg,var(--co2-blue),var(--co2-cyan));color:#03111d}
-.select2-search--dropdown .select2-search__field{background:var(--co2-field);color:var(--co2-text);border-color:var(--co2-stroke)}
+/* style.css define "input,button,select,...{color:#000!important}" (reset global) -- sin
+   !important acá el buscador del dropdown queda con texto negro invisible sobre fondo oscuro. */
+.select2-search--dropdown .select2-search__field{background:var(--co2-field);color:var(--co2-text)!important;border-color:var(--co2-stroke)}
 .select2-results__option{color:var(--co2-text)}
+/* Sin esto, la opción "seleccionada" (aria-selected=true, ej. la que ya está elegida al reabrir
+   el dropdown) hereda el gris claro por defecto de Select2/Bootstrap -- fondo claro + texto claro
+   del tema oscuro = ilegible. */
+.select2-container--default .select2-results__option[aria-selected="true"]{background:var(--co2-field);color:var(--co2-text)}
 
 .cont-modal-content{overflow:hidden;border:1px solid var(--co2-stroke);border-radius:var(--co2-radius-xl);background:var(--co2-panel-strong);box-shadow:var(--co2-shadow);backdrop-filter:blur(18px)}
 .cont-modal-header{border:0;background:linear-gradient(135deg,rgba(38,140,255,.22),rgba(34,211,238,.08));border-bottom:1px solid var(--co2-stroke)}
@@ -68,13 +76,17 @@
 .cont-modal-header h5{color:var(--co2-text);font-weight:900}
 .cont-modal-content .modal-footer{border-top:1px solid var(--co2-stroke)}
 .cont-modal-content label{color:rgba(245,249,255,.86);font-size:13px;font-weight:800}
+.cont-modal-content p{color:var(--co2-muted)}
+.cont-modal-content p a{color:var(--co2-cyan)}
 .cont-modal-content .close{opacity:.8}
 .cont-modal-content .form-control{
   border:1px solid rgba(255,255,255,.13)!important;border-radius:var(--co2-radius-md)!important;
   background:var(--co2-field)!important;color:var(--co2-text)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.025)!important}
 .cont-modal-content .form-control::placeholder{color:var(--co2-muted-2)!important}
 .cont-modal-content .form-control:focus{border-color:rgba(34,211,238,.5)!important;box-shadow:0 0 0 3px rgba(34,211,238,.12)!important}
-.cont-modal-content .form-control-file{color:var(--co2-muted)}
+/* style.css: "input,button,select,...{color:#000!important}" -- sin !important acá el texto
+   nativo del input de archivo ("Ningún archivo seleccionado") queda negro sobre fondo oscuro. */
+.cont-modal-content .form-control-file{color:var(--co2-muted)!important}
 .cont-form-error{min-height:20px;margin-top:8px;color:#ffb0be;font-size:13px;font-weight:800}
 .cont-import-resultado{margin-top:6px;font-size:12.5px;color:var(--co2-muted)}
 .cont-import-resultado ul{margin:6px 0 0;padding-left:18px}

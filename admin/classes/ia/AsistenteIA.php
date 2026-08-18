@@ -14,8 +14,14 @@
  */
 final class AsistenteIA
 {
-    private const MAX_ITER    = 10;
+    private const MAX_ITER    = 20;
     private const RATE_LIMIT  = 30;   // mensajes de usuario por hora
+
+    // Presupuesto de tiempo real (wall-clock) del loop de herramientas: deja margen bajo el
+    // set_time_limit(180) de ia_stt.php/ia_chat.php para poder cortar limpio (con un mensaje
+    // legible) en vez de que PHP mate el script a mitad de una respuesta -- eso dejaba al
+    // cliente esperando una línea final que nunca llega (voz "pegada" indefinidamente).
+    private const DEADLINE_SEGUNDOS = 150;
 
     private ClaudeService $claude;
 
@@ -128,8 +134,21 @@ final class AsistenteIA
     {
         $tokensIn  = 0;
         $tokensOut = 0;
+        $inicio    = microtime(true);
 
         for ($iter = 0; $iter < self::MAX_ITER; $iter++) {
+            if ($iter > 0 && (microtime(true) - $inicio) > self::DEADLINE_SEGUNDOS) {
+                // Ya se usó el presupuesto de tiempo: corta antes de arriesgar otra llamada a
+                // Claude (hasta 120s) que podría hacer que PHP mate el script a mitad de camino.
+                return [
+                    'La consulta requirió varios pasos y tomó más tiempo del esperado. Por favor '
+                    . 'intenta de nuevo, si puedes con una solicitud más puntual o dividida en '
+                    . 'pasos más pequeños.',
+                    $tokensIn,
+                    $tokensOut,
+                ];
+            }
+
             $respuesta = $this->claude->crearMensaje($system, $mensajes, $tools);
 
             $tokensIn  += $respuesta->usage->inputTokens  ?? 0;
@@ -220,7 +239,13 @@ final class AsistenteIA
 
     private function construirSystem(string $canal = 'widget'): array
     {
-        $fechaHoy = Util::date();
+        // Día de la semana en español explícito además de la fecha ISO: le da a Claude un
+        // ancla clara para calcular fechas relativas ("pasado mañana", "el próximo lunes") sin
+        // tener que preguntárselas de nuevo al usuario.
+        $diasSemana = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+        $fechaHoy   = Util::date();
+        $diaSemana  = $diasSemana[(int) date('w', strtotime($fechaHoy))];
+        $fechaHoy   = ucfirst($diaSemana) . ', ' . $fechaHoy . ' (hora de Colombia)';
 
         // Bloque estable (cacheado): instrucciones que no cambian por usuario
         $estable = <<<'PROMPT'
@@ -249,7 +274,12 @@ proyectos, visitas y gestión territorial del departamento.
 - Cuando las herramientas especializadas no sean suficientes, usa `consultar_base_de_datos` con SQL SELECT directo.
 - En `consultar_base_de_datos`, incluye siempre filtros WHERE apropiados basados en el scope territorial del usuario (municipio_id, secretaria_id). El sistema aplica filtros server-side automáticamente, pero si los incluyes en el SQL se obtienen resultados más precisos.
 - Cuando el usuario mencione un municipio por nombre, usa `buscar_municipio` primero para obtener su código DANE.
-- Encadena múltiples herramientas si es necesario: puedes hacer hasta 10 llamadas por turno.
+- Encadena múltiples herramientas si es necesario: puedes hacer hasta 20 llamadas por turno.
+- Cuando el usuario dé una fecha u hora **relativa** ("mañana", "pasado mañana", "el próximo
+  lunes", "en dos semanas", "a las 3 de la tarde"), calcúlala tú mismo a partir de la fecha
+  actual indicada en tu contexto — nunca le vuelvas a preguntar la fecha si ya te dio una
+  referencia relativa clara e inequívoca. Solo pregunta si la referencia es genuinamente ambigua
+  (ej. "el jueves" sin aclarar si es esta semana o la próxima).
 - Presenta los datos de forma clara: usa listas, tablas en markdown o resúmenes según corresponda.
 - Si una consulta no devuelve datos, informa al usuario sin inventar información.
 - Nunca incluyas JSON crudo en tu respuesta al usuario; procesa los datos y preséntales de forma legible.
@@ -262,11 +292,22 @@ otra persona. Reglas:
   error: dile al usuario, con naturalidad, que aún no tiene su cuenta de Google conectada y que
   puede hacerlo desde el módulo de Calendario (botón "Conectar con Google"). No insistas en
   reintentar la misma herramienta después de eso.
-- Antes de **enviar un correo, responder uno, crear un evento o mover uno**, si falta
-  información necesaria (destinatario, asunto, qué escribir, fecha/hora, invitados) y el
-  usuario no la dio explícitamente, PREGÚNTASELA primero — nunca inventes ni asumas un
-  destinatario, asunto o contenido. Ejemplos: "¿A quién se lo envío?", "¿Qué le escribo?",
-  "¿A qué hora quieres la reunión?".
+- Antes de **enviar un correo, responder uno, crear un evento, o mover/modificar uno
+  existente**, si falta información necesaria (destinatario, asunto, qué escribir, fecha/hora,
+  invitados, qué campo cambiar) y el usuario no la dio explícitamente, PREGÚNTASELA primero —
+  nunca inventes ni asumas un destinatario, asunto o contenido. Ejemplos: "¿A quién se lo
+  envío?", "¿Qué le escribo?", "¿A qué hora quieres la reunión?".
+- Para mover o modificar un evento (`calendario_actualizar_evento`), si el usuario no te dio el
+  evento_id directamente, primero usa `calendario_listar_eventos` para encontrarlo por su título
+  o fecha aproximada. Si hay varios eventos que podrían coincidir, pregunta cuál antes de
+  modificar. Envía solo los campos que realmente cambian.
+- **Nunca crees un evento nuevo (`calendario_crear_evento`) como sustituto de mover o modificar
+  uno existente.** Si el usuario pidió mover/modificar un evento y no lo encuentras en
+  `calendario_listar_eventos`, amplía el rango de fechas de la búsqueda (ej. varias semanas
+  antes/después) antes de darte por vencido; si aun así no aparece, o si
+  `calendario_actualizar_evento` devuelve un error, dile al usuario que no pudiste encontrar o
+  actualizar ese evento y pregúntale cómo seguir — NUNCA crees uno nuevo en su lugar, eso deja un
+  evento duplicado en su calendario.
 - Si el usuario se refiere a alguien **por nombre** (no te dio el correo directamente) para
   enviar/responder un correo o invitarlo a un evento, usa `contactos_buscar` primero para
   resolver ese nombre a un correo de su directorio personal. Si encuentra un solo contacto que
@@ -276,8 +317,8 @@ otra persona. Reglas:
   pregunte cómo hacerlo).
 - Antes de **enviar un correo** o **cancelar un evento** (acciones irreversibles y, en el caso
   del correo, visibles para terceros), resume brevemente lo que vas a hacer y confirma con el
-  usuario si no fue explícito en su pedido — ej. "¿Envío el correo con este contenido?". Crear
-  o mover un evento, marcar como leído, listar o buscar no requieren esa confirmación.
+  usuario si no fue explícito en su pedido — ej. "¿Envío el correo con este contenido?". Crear,
+  mover o modificar un evento, marcar como leído, listar o buscar no requieren esa confirmación.
 - Al leer o listar correos, resume lo relevante (remitente, de qué trata, lo importante) en vez
   de recitar el cuerpo completo palabra por palabra, salvo que el usuario pida el detalle
   completo de uno en particular.

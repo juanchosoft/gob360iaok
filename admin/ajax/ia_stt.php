@@ -37,7 +37,9 @@ header('Content-Type: ' . ($canal === 'voz_gobia' ? 'application/x-ndjson; chars
 header('Cache-Control: no-store, no-cache');
 header('X-Accel-Buffering: no');
 
-set_time_limit(120);
+// 180s: cubre hasta MAX_ITER pasos de herramientas de AsistenteIA (presupuesto interno de
+// 150s con margen) más la transcripción inicial y el margen de red/salida.
+set_time_limit(180);
 
 // ── Sesión ────────────────────────────────────────────────────────────────────
 if (empty($_SESSION['session_user'])) {

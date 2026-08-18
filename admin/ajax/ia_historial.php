@@ -113,7 +113,8 @@ switch ($op) {
             contenidoApi: [['type' => 'text', 'text' => $texto]],
             tokensEntrada: 0,
             tokensSalida: 0,
-            origen: 'voz'
+            origen: 'voz',
+            esRelleno: true
         );
 
         echo json_encode([
@@ -142,7 +143,8 @@ switch ($op) {
             contenidoApi: [['type' => 'text', 'text' => $texto]],
             tokensEntrada: 0,
             tokensSalida: 0,
-            origen: 'voz'
+            origen: 'voz',
+            esRelleno: true
         );
 
         echo json_encode([
@@ -171,7 +173,8 @@ switch ($op) {
             contenidoApi: [['type' => 'text', 'text' => $texto]],
             tokensEntrada: 0,
             tokensSalida: 0,
-            origen: 'voz'
+            origen: 'voz',
+            esRelleno: true
         );
 
         echo json_encode([

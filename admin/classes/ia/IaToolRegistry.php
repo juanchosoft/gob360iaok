@@ -489,24 +489,30 @@ final class IaToolRegistry
                 'ejecutor' => static fn(array $input) => ToolCalendarGoogle::crearEvento($input),
             ],
 
-            'calendario_mover_evento' => [
+            'calendario_actualizar_evento' => [
                 'definicion' => [
-                    'name'        => 'calendario_mover_evento',
-                    'description' => 'Cambia la fecha/hora de un evento existente en el calendario de Google '
-                                   . 'PERSONAL del usuario. Necesitas el evento_id -- consíguelo primero con '
-                                   . 'calendario_listar_eventos si no lo tienes.',
+                    'name'        => 'calendario_actualizar_evento',
+                    'description' => 'Modifica un evento existente en el calendario de Google PERSONAL del '
+                                   . 'usuario: puede moverlo de fecha/hora, cambiar su título, ubicación o '
+                                   . 'descripción, o convertirlo a/desde evento de todo el día. Envía solo los '
+                                   . 'campos que realmente cambian (los demás quedan intactos). Necesitas el '
+                                   . 'evento_id -- consíguelo primero con calendario_listar_eventos si no lo tienes.',
                     'input_schema' => [
                         'type'       => 'object',
                         'properties' => [
                             'evento_id'    => ['type' => 'string', 'description' => 'ID del evento (obtenido de calendario_listar_eventos)'],
-                            'nuevo_inicio' => ['type' => 'string', 'description' => 'Nueva fecha/hora de inicio en ISO 8601'],
-                            'nuevo_fin'    => ['type' => 'string', 'description' => 'Nueva fecha/hora de fin en ISO 8601 (opcional)'],
+                            'nuevo_inicio' => ['type' => 'string', 'description' => 'Nueva fecha/hora de inicio en ISO 8601 (ej. 2026-08-20T15:00:00-05:00), o solo fecha YYYY-MM-DD si el evento es/pasará a ser de todo el día. Omite este campo si no cambia la fecha.'],
+                            'nuevo_fin'    => ['type' => 'string', 'description' => 'Nueva fecha/hora de fin, mismo formato que nuevo_inicio (opcional, por defecto igual al inicio)'],
+                            'todo_el_dia'  => ['type' => 'boolean', 'description' => 'true si el evento debe quedar como de todo el día, false si debe quedar con hora específica. Si se omite, se infiere del formato de nuevo_inicio.'],
+                            'titulo'       => ['type' => 'string', 'description' => 'Nuevo título del evento (opcional)'],
+                            'ubicacion'    => ['type' => 'string', 'description' => 'Nuevo lugar físico o enlace de videollamada (opcional)'],
+                            'descripcion'  => ['type' => 'string', 'description' => 'Nuevas notas/detalle del evento (opcional)'],
                         ],
-                        'required' => ['evento_id', 'nuevo_inicio'],
+                        'required' => ['evento_id'],
                     ],
                 ],
                 'permisos' => 'asistente_ia.google.use',
-                'ejecutor' => static fn(array $input) => ToolCalendarGoogle::moverEvento($input),
+                'ejecutor' => static fn(array $input) => ToolCalendarGoogle::actualizarEvento($input),
             ],
 
             'calendario_cancelar_evento' => [

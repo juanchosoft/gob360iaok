@@ -38,16 +38,27 @@ final class IaConversacion
     public static function obtenerOCrearSesionDiaria(string $canal): int
     {
         $usuarioId = (int) SessionData::getUserId();
+
+        // Bug real (encontrado en datos de producción): CURDATE() se evalúa en el timezone del
+        // SERVIDOR de MySQL, no en el de PHP. created_at se guarda con Util::date() en hora de
+        // Colombia (America/Bogota) -- si MySQL corre en UTC (típico en el contenedor Docker de
+        // producción), toda la franja 19:00-23:59 hora Colombia cae al día SIGUIENTE en UTC, así
+        // que "DATE(created_at) = CURDATE()" nunca coincidía en esa franja: cada llamada creaba
+        // una conversación nueva en vez de reutilizar la del día, fragmentando el historial y
+        // perdiendo la memoria a mitad de una tarea. Se calcula la fecha de hoy en PHP (hora de
+        // Colombia) y se compara como parámetro, sin depender del timezone de MySQL.
+        $hoyBogota = (new DateTime('now', new DateTimeZone('America/Bogota')))->format('Y-m-d');
+
         $db  = new DbConection();
         $pdo = $db->openConect();
 
         $st = $pdo->prepare(
             "SELECT id FROM tbl_ia_conversaciones
               WHERE tbl_usuario_id = :uid AND canal = :canal AND activa = 1
-                AND DATE(created_at) = CURDATE()
+                AND DATE(created_at) = :hoy
               ORDER BY id DESC LIMIT 1"
         );
-        $st->execute([':uid' => $usuarioId, ':canal' => $canal]);
+        $st->execute([':uid' => $usuarioId, ':canal' => $canal, ':hoy' => $hoyBogota]);
         $id = $st->fetchColumn();
         $db->closeConect();
 
@@ -122,12 +133,16 @@ final class IaConversacion
         $db  = new DbConection();
         $pdo = $db->openConect();
 
-        // Subconsulta para tomar los últimos N y luego ordenarlos ASC
+        // Subconsulta para tomar los últimos N y luego ordenarlos ASC. Excluye es_relleno=1
+        // (saludo/frase_espera/frase_interrupcion de gobia.php): son turnos falsos que nunca
+        // vio Claude -- incluirlos aquí rompe la alternancia real de la conversación y, en una
+        // sesión de voz larga, ocupa buena parte de LIMIT sin aportar nada, empujando fuera del
+        // contexto mensajes reales más antiguos (ver admin/db/2026_08_ia_mensajes_es_relleno.sql).
         $st = $pdo->prepare(
             "SELECT rol, contenido_api FROM (
                 SELECT id, rol, contenido_api
                   FROM tbl_ia_mensajes
-                 WHERE conversacion_id = :cid
+                 WHERE conversacion_id = :cid AND es_relleno = 0
                  ORDER BY id DESC
                  LIMIT :lim
              ) sub ORDER BY id ASC"
@@ -186,15 +201,18 @@ final class IaConversacion
         mixed  $contenidoApi,  // array de bloques para la API (se serializa como JSON)
         int    $tokensEntrada,
         int    $tokensSalida,
-        string $origen = 'texto'  // 'texto' | 'voz'
+        string $origen = 'texto',  // 'texto' | 'voz'
+        bool   $esRelleno = false  // true = saludo/frase_espera/frase_interrupcion de gobia.php:
+                                    // se persiste para poder sintetizarlo con ia_tts.php, pero
+                                    // cargarContextoApi() lo excluye del historial real
     ): int {
         $db  = new DbConection();
         $pdo = $db->openConect();
 
         $st = $pdo->prepare(
             "INSERT INTO tbl_ia_mensajes
-                (conversacion_id, rol, contenido, contenido_api, tokens_entrada, tokens_salida, origen, created_at)
-             VALUES (:cid, :rol, :contenido, :api, :te, :ts, :origen, :now)"
+                (conversacion_id, rol, contenido, contenido_api, tokens_entrada, tokens_salida, origen, es_relleno, created_at)
+             VALUES (:cid, :rol, :contenido, :api, :te, :ts, :origen, :relleno, :now)"
         );
         $st->execute([
             ':cid'      => $conversacionId,
@@ -204,6 +222,7 @@ final class IaConversacion
             ':te'       => $tokensEntrada,
             ':ts'       => $tokensSalida,
             ':origen'   => $origen,
+            ':relleno'  => $esRelleno ? 1 : 0,
             ':now'      => Util::date(),
         ]);
         $id = (int) $pdo->lastInsertId();
@@ -240,6 +259,14 @@ final class IaConversacion
     public static function contarMensajesUltimaHora(): int
     {
         $usuarioId = (int) SessionData::getUserId();
+
+        // Mismo problema de timezone que en obtenerOCrearSesionDiaria(): NOW() corre en el
+        // timezone del servidor de MySQL, no en el de PHP/Util::date() (hora de Colombia). Se
+        // calcula el umbral en PHP para no depender del timezone de MySQL.
+        $haceUnaHora = (new DateTime('now', new DateTimeZone('America/Bogota')))
+            ->modify('-1 hour')
+            ->format('Y-m-d H:i:s');
+
         $db  = new DbConection();
         $pdo = $db->openConect();
 
@@ -248,9 +275,9 @@ final class IaConversacion
                JOIN tbl_ia_conversaciones c ON c.id = m.conversacion_id
               WHERE c.tbl_usuario_id = :uid
                 AND m.rol = 'user'
-                AND m.created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)"
+                AND m.created_at >= :desde"
         );
-        $st->execute([':uid' => $usuarioId]);
+        $st->execute([':uid' => $usuarioId, ':desde' => $haceUnaHora]);
         $count = (int) $st->fetchColumn();
         $db->closeConect();
         return $count;

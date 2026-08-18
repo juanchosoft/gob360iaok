@@ -96,6 +96,10 @@
       width: '100%',
       placeholder: 'Yo (predeterminado)',
       allowClear: true,
+      // Sin esto, Select2 cuelga el dropdown de <body> y queda detrás del modal de Bootstrap
+      // (su backdrop/contenido tiene mayor z-index) -- al anclarlo al propio modal, el
+      // dropdown queda dentro de su misma pila de apilamiento y se ve por encima.
+      dropdownParent: $('#contModal'),
     });
     llamarAjax('contactos_usuarios_asignar', {}).then((usuarios) => {
       const $select = $('#contPropietario');

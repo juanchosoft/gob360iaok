@@ -15,6 +15,11 @@
     waitForVoiceMs: 7500,
     silenceAfterVoiceMs: 3000,
     voiceThreshold: 0.026,
+    // Un poco por encima del set_time_limit(180) de ia_stt.php/ia_chat.php (deja margen de red)
+    // y del set_time_limit(30) de ia_tts.php: si el servidor se pasa de estos tiempos, mejor
+    // abortar y mostrar un error claro que dejar la interfaz "pegada" esperando para siempre.
+    sttTimeoutMs: 185000,
+    ttsTimeoutMs: 35000,
     // Barge-in: umbral y confirmación más estrictos que en modo escucha normal, para no
     // confundir la propia voz de ALMA (vía altavoces) con una interrupción real del usuario.
     bargeInThreshold: 0.055,
@@ -239,6 +244,25 @@
     microphoneSource.connect(microphoneAnalyser);
 
     return microphoneStream;
+  }
+
+  /**
+   * fetch() con límite de tiempo propio: si el servidor no responde dentro de timeoutMs, aborta
+   * la petición para que el flujo pueda mostrar un error en vez de quedarse esperando
+   * indefinidamente (fetch no tiene timeout por defecto).
+   */
+  function fetchConTimeout(url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+
+    return fetch(url, { ...options, signal: controller.signal })
+      .catch((error) => {
+        if (error.name === 'AbortError') {
+          throw new Error('El servidor tardó demasiado en responder. Intenta de nuevo.');
+        }
+        throw error;
+      })
+      .finally(() => window.clearTimeout(timer));
   }
 
   function chooseAudioMimeType() {
@@ -588,11 +612,11 @@
     data.append('audio', blob, `alma-command.${extension}`);
     data.append('canal', 'voz_gobia');
 
-    const response = await fetch(CONFIG.sttEndpoint, {
+    const response = await fetchConTimeout(CONFIG.sttEndpoint, {
       method: 'POST',
       body: data,
       credentials: 'same-origin',
-    });
+    }, CONFIG.sttTimeoutMs);
 
     if (!response.ok || !response.body) {
       const payload = await readJsonResponse(response);
@@ -731,7 +755,7 @@
       labels.processingText
     );
 
-    const response = await fetch(CONFIG.ttsEndpoint, {
+    const response = await fetchConTimeout(CONFIG.ttsEndpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -739,7 +763,7 @@
       },
       credentials: 'same-origin',
       body: new URLSearchParams({ mensaje_id: String(mensajeId) }),
-    });
+    }, CONFIG.ttsTimeoutMs);
 
     if (!response.ok) {
       let message = `No se pudo generar la voz de ${ASSISTANT_NAME}.`;

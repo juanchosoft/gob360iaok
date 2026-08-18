@@ -14,8 +14,9 @@ session_start();
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache');
 
-// Tiempo extendido para llamadas a la API de Claude
-set_time_limit(120);
+// Tiempo extendido para llamadas a la API de Claude. 180s: cubre hasta MAX_ITER pasos de
+// herramientas de AsistenteIA (presupuesto interno de 150s con margen) más el margen de red/salida.
+set_time_limit(180);
 
 // Verificar sesión activa
 if (empty($_SESSION['session_user'])) {
